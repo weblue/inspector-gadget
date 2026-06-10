@@ -1,0 +1,8 @@
+{
+  "name": "local-briefcase-pi-extensions",
+  "private": true,
+  "dependencies": {
+    "@mendable/firecrawl-js": "^1.0.0",
+    "shell-quote": "^1.8.3"
+  }
+}
