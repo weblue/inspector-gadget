@@ -1,3 +1,29 @@
+# macOS
 .DS_Store
+
+# dependencies
 node_modules/
+
+# local agent/editor state
+.claude/settings.local.json
+
+# build outputs and caches
+dist/
+build/
+coverage/
+.next/
+.turbo/
+.cache/
+.tmp/
+tmp/
+
+# local env and data
+.env
+.env.*
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# ad hoc backups
 *.backup.*

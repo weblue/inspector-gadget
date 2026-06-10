@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — bootstrap local-briefcase for one, several, or all harnesses
+# install.sh — bootstrap agent-jacket for one, several, or all harnesses
 #
 # Usage:
 #   ./install.sh                  # interactive multi-select
@@ -689,7 +689,7 @@ fi
 
 # ─── done ─────────────────────────────────────────────────────────────────────
 echo ""
-success "${BOLD}Done.${RESET} local-briefcase bootstrapped for ${BOLD}${SELECTED_AGENTS[*]}${RESET}."
+success "${BOLD}Done.${RESET} agent-jacket bootstrapped for ${BOLD}${SELECTED_AGENTS[*]}${RESET}."
 echo ""
 if agent_selected claude; then echo "   ${DIM}Next: run 'claude' to log in.${RESET}"; fi
 if agent_selected codex;  then echo "   ${DIM}Next: run 'codex' to log in.${RESET}"; fi

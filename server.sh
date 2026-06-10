@@ -4,7 +4,7 @@
 # What this does:
 #   1. Verifies Tailscale is up and connected
 #   2. Verifies SSH (Remote Login) is running
-#   3. Creates or reattaches to the shared tmux session "briefcase"
+#   3. Creates or reattaches to the shared tmux session "agent-jacket"
 #   4. Prints connection info for remote clients
 #
 # Prerequisites (run ./install.sh first):
@@ -38,7 +38,7 @@ success() { echo "${GREEN}${BOLD}✓${RESET}  $*"; }
 warn()    { echo "${YELLOW}${BOLD}!${RESET}  $*"; }
 error()   { echo "${RED}${BOLD}✗${RESET}  $*" >&2; exit 1; }
 
-SESSION="briefcase"
+SESSION="agent-jacket"
 
 # ─── tailscale ────────────────────────────────────────────────────────────────
 info "Checking Tailscale..."

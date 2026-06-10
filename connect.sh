@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# connect.sh — open briefcase server sessions as cmux workspaces (tabs)
+# connect.sh — open agent-jacket server sessions as cmux workspaces (tabs)
 #
 # Run this on a client mac after client-install.sh.
 # Opens three cmux workspaces, each SSH'd into the server:
@@ -8,15 +8,15 @@
 #   3. logs    — tail of server logs / monitoring
 #
 # cmux must be running. Tailscale must be connected.
-# SSH alias must be configured (~/.ssh/config Host briefcase-server).
+# SSH alias must be configured (~/.ssh/config Host agent-jacket-server).
 #
 # Usage:
-#   ./connect.sh                      # uses default alias 'briefcase-server'
+#   ./connect.sh                      # uses default alias 'agent-jacket-server'
 #   ./connect.sh my-server-alias      # use a custom SSH alias
 
 set -euo pipefail
 
-SSH_ALIAS="${1:-briefcase-server}"
+SSH_ALIAS="${1:-agent-jacket-server}"
 
 # ─── colours ──────────────────────────────────────────────────────────────────
 if [[ -t 1 ]]; then
@@ -77,14 +77,14 @@ open_workspace() {
 
 # ─── open workspaces ──────────────────────────────────────────────────────────
 echo ""
-info "Opening briefcase server sessions in cmux..."
+info "Opening agent-jacket server sessions in cmux..."
 echo ""
 
 # 1. Pi agent — attaches to the 'pi' tmux window on the server.
 # Set TERM via the remote shell (attach-session's -E takes no argument), then
 # attach if the session exists, otherwise create it.
 open_workspace "pi" \
-  "ssh ${SSH_ALIAS} -t 'export TERM=xterm-256color; tmux attach -t briefcase 2>/dev/null || tmux new-session -s briefcase -n pi pi'"
+  "ssh ${SSH_ALIAS} -t 'export TERM=xterm-256color; tmux attach -t agent-jacket 2>/dev/null || tmux new-session -s agent-jacket -n pi pi'"
 
 # 2. Shell — general-purpose server shell
 open_workspace "shell" \
@@ -101,7 +101,7 @@ echo "${BOLD}  Connected${RESET}"
 echo "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 echo ""
 echo "  Workspaces open in cmux:"
-echo "  ${CYAN}pi${RESET}     — Pi agent session (tmux: briefcase)"
+echo "  ${CYAN}pi${RESET}     — Pi agent session (tmux: agent-jacket)"
 echo "  ${CYAN}shell${RESET}  — General server shell"
 echo "  ${CYAN}logs${RESET}   — Log monitoring"
 echo ""

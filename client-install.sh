@@ -9,7 +9,7 @@
 #   5. Prints connection instructions
 #
 # No agents are installed on the client. All agentic flows run on the server.
-# Clients connect via: ssh <server> → tmux attach -t briefcase
+# Clients connect via: ssh <server> → tmux attach -t agent-jacket
 
 set -euo pipefail
 
@@ -103,7 +103,7 @@ ask "What is the SSH username on the server?"
 read -rp "  Username [default: $(whoami)]: " SERVER_USER
 SERVER_USER="${SERVER_USER:-$(whoami)}"
 
-SSH_ALIAS="briefcase-server"
+SSH_ALIAS="agent-jacket-server"
 ask "What alias should this server have in ~/.ssh/config?"
 read -rp "  Alias [default: ${SSH_ALIAS}]: " SSH_ALIAS_INPUT
 SSH_ALIAS="${SSH_ALIAS_INPUT:-$SSH_ALIAS}"
@@ -154,7 +154,7 @@ if grep -q "^Host ${SSH_ALIAS}$" "$SSH_CONFIG" 2>/dev/null; then
 else
   cat >> "$SSH_CONFIG" <<EOF
 
-# local-briefcase server — added by client-install.sh
+# agent-jacket server — added by client-install.sh
 Host ${SSH_ALIAS}
   HostName ${SERVER_HOST}
   User ${SERVER_USER}
@@ -195,7 +195,7 @@ echo "  ${CYAN}./connect.sh${RESET}"
 echo "  ${DIM}Opens Pi, shell, and logs workspaces in cmux, each SSH'd to the server.${RESET}"
 echo ""
 echo "  ${BOLD}Or connect manually:${RESET}"
-echo "  ${CYAN}ssh ${SSH_ALIAS} -t 'tmux attach -t briefcase'${RESET}"
+echo "  ${CYAN}ssh ${SSH_ALIAS} -t 'tmux attach -t agent-jacket'${RESET}"
 echo ""
 echo "  ${DIM}Ensure Tailscale is connected on this machine before connecting.${RESET}"
 echo ""

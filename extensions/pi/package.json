@@ -1,5 +1,5 @@
 {
-  "name": "local-briefcase-pi-extensions",
+  "name": "agent-jacket-pi-extensions",
   "private": true,
   "dependencies": {
     "@mendable/firecrawl-js": "^1.0.0",
