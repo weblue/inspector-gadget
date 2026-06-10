@@ -531,6 +531,22 @@ if agent_selected pi; then
   fi
 
   configure_pi_settings
+
+  # The firecrawl-search extension exposes Pi's web `search`/`scrape` tools, which
+  # need a Firecrawl API key. The extension reads FIRECRAWL_API_KEY from the
+  # environment first, then from ~/.pi/agent/.env. Flag it here when neither is
+  # set so the tools don't silently error the first time the agent calls them.
+  PI_ENV="$HOME/.pi/agent/.env"
+  if [[ -n "${FIRECRAWL_API_KEY:-}" ]]; then
+    success "Firecrawl API key found in environment — Pi web search/scrape enabled."
+  elif [[ -f "$PI_ENV" ]] && grep -qE '^[[:space:]]*(export[[:space:]]+)?FIRECRAWL_API_KEY[[:space:]]*=' "$PI_ENV"; then
+    success "Firecrawl API key found in ~/.pi/agent/.env — Pi web search/scrape enabled."
+  else
+    warn "Pi's web search/scrape tools (firecrawl-search) need a Firecrawl API key."
+    warn "  Set one before using them, e.g.:"
+    warn "    echo 'FIRECRAWL_API_KEY=fc-...' >> ~/.pi/agent/.env"
+    warn "  Get a key at https://www.firecrawl.dev"
+  fi
 fi
 
 # ─── install cmux ─────────────────────────────────────────────────────────────

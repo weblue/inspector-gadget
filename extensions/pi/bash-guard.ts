@@ -424,7 +424,7 @@ export default function (pi: ExtensionAPI) {
 			};
 		}
 
-		if (!ctx.hasUI && pi.getFlag("--bash-guard-auto-allow")) {
+		if (!ctx.hasUI && pi.getFlag("bash-guard-auto-allow")) {
 			return;
 		}
 
