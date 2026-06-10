@@ -31,6 +31,7 @@ success() { echo "${GREEN}${BOLD}✓${RESET}  $*"; }
 warn()    { echo "${YELLOW}${BOLD}!${RESET}  $*"; }
 error()   { echo "${RED}${BOLD}✗${RESET}  $*" >&2; exit 1; }
 ask()     { echo "${BOLD}?${RESET}  $*"; }
+lc()      { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
 # ─── os detection ─────────────────────────────────────────────────────────────
 case "$(uname -s)" in
@@ -115,13 +116,13 @@ info "Checking SSH key..."
 mkdir -p "$HOME/.ssh"
 chmod 700 "$HOME/.ssh"
 
-# Prefer an existing id_rsa, then id_ed25519; otherwise generate an ed25519 key.
-if [[ -f "$HOME/.ssh/id_rsa" ]]; then
-  KEY_PATH="$HOME/.ssh/id_rsa"
-  success "SSH key found: ~/.ssh/id_rsa"
-elif [[ -f "$HOME/.ssh/id_ed25519" ]]; then
+# Prefer an existing id_ed25519, then id_rsa; otherwise generate an ed25519 key.
+if [[ -f "$HOME/.ssh/id_ed25519" ]]; then
   KEY_PATH="$HOME/.ssh/id_ed25519"
   success "SSH key found: ~/.ssh/id_ed25519"
+elif [[ -f "$HOME/.ssh/id_rsa" ]]; then
+  KEY_PATH="$HOME/.ssh/id_rsa"
+  success "SSH key found: ~/.ssh/id_rsa"
 else
   warn "No SSH key found. Generating ed25519 key..."
   ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519" -N "" -C "${USER}@$(hostname)-client"
@@ -174,7 +175,7 @@ if [[ -f "$PUBKEY_PATH" ]]; then
   echo "  ${DIM}${PUBKEY_CONTENT}${RESET}"
   echo ""
   read -rp "  Try to copy it to the server now via ssh-copy-id? [y/N]: " DO_COPY
-  if [[ "${DO_COPY,,}" == "y" ]]; then
+  if [[ "$(lc "$DO_COPY")" == "y" ]]; then
     ssh-copy-id -i "$PUBKEY_PATH" "${SERVER_USER}@${SERVER_HOST}" && \
       success "Public key copied to server." || \
       warn "ssh-copy-id failed — copy the key manually."

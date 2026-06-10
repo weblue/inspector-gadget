@@ -6,13 +6,15 @@
 #   ./install.sh claude           # one harness
 #   ./install.sh claude codex     # several harnesses
 #   ./install.sh all              # all three (claude, codex, pi)
+#   ./install.sh --force claude   # update existing install: re-seed prompts/settings, backups kept, no prompts
 #
 # What this does:
 #   1. Detect OS (mac / linux)
 #   2. Select harnesses: any combination of claude | codex | pi, or 'all'
 #   3. Install each selected agent CLI if not already present
 #   4. For Pi: ask for auth method (default: subscription login)
-#   5. Seed each selected agent's global config:
+#   5. Seed each selected agent's global config (shared system-prompt.md +
+#      agent-specific file, concatenated at install time):
 #        claude → ~/.claude/CLAUDE.md + ~/.claude/settings.json
 #        codex  → ~/.codex/AGENTS.md
 #        pi     → ~/.pi/agent/AGENTS.md
@@ -31,12 +33,8 @@
 # Context hygiene: Claude uses permissions.deny in ~/.claude/settings.json;
 # all agents respect the project .gitignore. No global "ignore" file is written.
 #
-# TODO:
-#   - system-prompt.md           write the shared base system prompt (currently stub)
-#   - agents/claude/CLAUDE.md     write Claude-specific instructions (currently stub)
-#   - agents/codex/AGENTS.md      write Codex-specific instructions (currently stub)
-#   - agents/pi/system-prompt.md  write Pi-specific instructions (currently stub)
-#   - Agent profiles              define agents/<agent>/profiles/ and copy on install
+# Worker profiles (agents/profiles/*.md) install as Claude Code subagents in
+# ~/.claude/agents/, each with the shared _base.md constraints appended.
 
 set -euo pipefail
 
@@ -60,6 +58,7 @@ success() { echo -e "${GREEN}${BOLD}✓${RESET}  $*"; }
 warn()    { echo -e "${YELLOW}${BOLD}!${RESET}  $*"; }
 error()   { echo -e "${RED}${BOLD}✗${RESET}  $*" >&2; exit 1; }
 ask()     { echo -e "${BOLD}?${RESET}  $*"; }
+lc()      { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
 # ─── os detection ─────────────────────────────────────────────────────────────
 detect_os() {
@@ -71,6 +70,7 @@ detect_os() {
 }
 
 OS=$(detect_os)
+FORCE=0
 info "Detected OS: ${OS}"
 
 # ─── dependency helpers ────────────────────────────────────────────────────────
@@ -106,7 +106,7 @@ add_agent() {
 parse_tokens() {
   local token
   for token in "$@"; do
-    token="${token,,}"
+    token="$(lc "$token")"
     case "$token" in
       "")       : ;;
       a|all)    SELECTED_AGENTS=(claude codex pi); return 0 ;;
@@ -119,7 +119,14 @@ parse_tokens() {
 }
 
 if [[ $# -gt 0 ]]; then
-  RAW_SELECTION="$*"
+  RAW_SELECTION=""
+  for _arg in "$@"; do
+    if [[ "$_arg" == "--force" ]]; then
+      FORCE=1
+    else
+      RAW_SELECTION="${RAW_SELECTION:+$RAW_SELECTION }$_arg"
+    fi
+  done
 else
   echo ""
   ask "Which agent harness(es) would you like to install? (pick any number)"
@@ -239,7 +246,7 @@ if agent_selected pi; then
   read -rp "$(echo -e "${BOLD}?${RESET}  Set a direct API key instead? [y/N]: ")" PI_USE_APIKEY
   PI_USE_APIKEY="${PI_USE_APIKEY:-n}"
 
-  if [[ "${PI_USE_APIKEY,,}" == "y" ]]; then
+  if [[ "$(lc "$PI_USE_APIKEY")" == "y" ]]; then
     read -rp "   Provider (anthropic | openai | google | deepseek | mistral | groq | xai): " PI_PROVIDER
     PI_PROVIDER="$(echo "$PI_PROVIDER" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
 
@@ -249,7 +256,7 @@ if agent_selected pi; then
       warn "To use your Claude Pro/Max subscription instead, use Claude Code, or run"
       warn "'pi /login' and choose the Claude subscription (OAuth) option."
       read -rp "   Use a billable Anthropic API key anyway? [y/N]: " PI_ANTHROPIC_CONFIRM
-      if [[ "${PI_ANTHROPIC_CONFIRM,,}" != "y" ]]; then
+      if [[ "$(lc "$PI_ANTHROPIC_CONFIRM")" != "y" ]]; then
         warn "Skipping API key. Run 'pi /login' after install for subscription auth."
         PI_PROVIDER=""
       fi
@@ -283,16 +290,37 @@ seed_file() {
   fi
 
   if [[ -f "$dest" ]]; then
-    warn "File already exists: $dest"
-    read -rp "   Overwrite? [y/N]: " OVERWRITE
-    [[ "${OVERWRITE,,}" == "y" ]] || { info "Skipped $dest"; return; }
-    cp "$dest" "${dest}.backup.$(date +%Y%m%d%H%M%S)"
-    info "Backup saved: ${dest}.backup.*"
+    if [[ "$FORCE" -eq 1 ]]; then
+      cp "$dest" "${dest}.backup.$(date +%Y%m%d%H%M%S)"
+      info "Backup saved: ${dest}.backup.*"
+    else
+      warn "File already exists: $dest"
+      read -rp "   Overwrite? [y/N]: " OVERWRITE
+      [[ "$(lc "$OVERWRITE")" == "y" ]] || { info "Skipped $dest"; return; }
+      cp "$dest" "${dest}.backup.$(date +%Y%m%d%H%M%S)"
+      info "Backup saved: ${dest}.backup.*"
+    fi
   fi
 
   mkdir -p "$(dirname "$dest")"
   cp "$src" "$dest"
   success "Seeded: $dest"
+}
+
+# Builds the installed prompt by concatenating the shared base prompt
+# (system-prompt.md) with the agent-specific file, then seeds the result.
+# Keeps one source of truth in the repo while installed files stay self-contained.
+seed_prompt() {
+  local agent_src="$1" dest="$2" tmp
+  tmp="$(mktemp)"
+  if [[ -f "$agent_src" ]]; then
+    { cat "$REPO_DIR/system-prompt.md"; echo ""; cat "$agent_src"; } > "$tmp"
+  else
+    warn "Agent prompt not found ($agent_src) — seeding base prompt only."
+    cat "$REPO_DIR/system-prompt.md" > "$tmp"
+  fi
+  seed_file "$tmp" "$dest"
+  rm -f "$tmp"
 }
 
 seed_agent_config() {
@@ -301,18 +329,18 @@ seed_agent_config() {
       # Claude Code loads global memory from ~/.claude/CLAUDE.md (not ~/CLAUDE.md)
       # and global settings from ~/.claude/settings.json.
       mkdir -p "$HOME/.claude"
-      seed_file "$REPO_DIR/agents/claude/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
+      seed_prompt "$REPO_DIR/agents/claude/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
       seed_file "$REPO_DIR/agents/claude/settings.json" "$HOME/.claude/settings.json"
       ;;
     codex)
       # Codex reads AGENTS.md from CODEX_HOME (~/.codex), not ~/AGENTS.md.
       mkdir -p "$HOME/.codex"
-      seed_file "$REPO_DIR/agents/codex/AGENTS.md" "$HOME/.codex/AGENTS.md"
+      seed_prompt "$REPO_DIR/agents/codex/AGENTS.md" "$HOME/.codex/AGENTS.md"
       ;;
     pi)
       # Pi loads AGENTS.md from ~/.pi/agent (plus parents and cwd).
       mkdir -p "$HOME/.pi/agent"
-      seed_file "$REPO_DIR/agents/pi/system-prompt.md" "$HOME/.pi/agent/AGENTS.md"
+      seed_prompt "$REPO_DIR/agents/pi/AGENTS.md" "$HOME/.pi/agent/AGENTS.md"
       ;;
   esac
 }
@@ -571,8 +599,32 @@ else
   info "cmux is macOS only — skipping on Linux."
 fi
 
-# ─── TODO: agent profiles ─────────────────────────────────────────────────────
-# TODO: once agents/<agent>/profiles/ is defined, copy profiles on install.
+# ─── worker profiles ──────────────────────────────────────────────────────────
+# Worker profiles (agents/profiles/*.md) install as Claude Code subagents in
+# ~/.claude/agents/. Each installed profile = role file + _base.md appended, so
+# subagents are self-contained. Codex and Pi have no subagent file equivalent;
+# their main prompts cover the same ground.
+
+install_claude_profiles() {
+  local src="$REPO_DIR/agents/profiles"
+  local dest="$HOME/.claude/agents"
+  [[ -d "$src" ]] || { warn "agents/profiles/ not found, skipping."; return; }
+  mkdir -p "$dest"
+  local f name
+  for f in "$src"/*.md; do
+    [[ -f "$f" ]] || continue
+    name="$(basename "$f")"
+    [[ "$name" == _* ]] && continue
+    cat "$f" "$src/_base.md" > "$dest/$name"
+    success "Profile → $dest/$name"
+  done
+}
+
+if agent_selected claude; then
+  echo ""
+  info "Installing worker profiles..."
+  install_claude_profiles
+fi
 
 # ─── server environment prereqs ───────────────────────────────────────────────
 # Installs tools required to serve remote terminal access to this machine.
@@ -581,7 +633,7 @@ fi
 # Note on auth layers:
 #   - Tailscale: uses your Tailscale account (Google/GitHub/email) to join the
 #     tailnet. Run 'tailscale up' after install to authenticate.
-#   - SSH over Tailscale: uses ~/.ssh/id_rsa or ~/.ssh/id_ed25519 (key auth;
+#   - SSH over Tailscale: uses ~/.ssh/id_ed25519 or ~/.ssh/id_rsa (key auth;
 #     password auth disabled).
 #
 # boss-man is not started here. Run ~/projects/boss-man-dashboard/start.sh
@@ -598,9 +650,11 @@ elif [[ "$OS" == "mac" ]] && command -v brew &>/dev/null; then
   brew install tmux
   success "tmux installed."
 elif [[ "$OS" == "linux" ]]; then
-  sudo apt-get install -y tmux 2>/dev/null || sudo yum install -y tmux 2>/dev/null || \
+  if sudo apt-get install -y tmux 2>/dev/null || sudo yum install -y tmux 2>/dev/null; then
+    success "tmux installed."
+  else
     warn "Could not auto-install tmux. Install it via your package manager."
-  success "tmux installed."
+  fi
 else
   warn "Could not install tmux — install it manually."
 fi
@@ -634,14 +688,14 @@ if [[ "$OS" == "mac" ]]; then
   mkdir -p "$HOME/.ssh"
   chmod 700 "$HOME/.ssh"
 
-  # Add the local public key to authorized_keys (prefer id_rsa, then id_ed25519).
-  if [[ -f "$HOME/.ssh/id_rsa" ]]; then
-    KEY_PATH="$HOME/.ssh/id_rsa"
-  elif [[ -f "$HOME/.ssh/id_ed25519" ]]; then
+  # Add the local public key to authorized_keys (prefer id_ed25519, then id_rsa).
+  if [[ -f "$HOME/.ssh/id_ed25519" ]]; then
     KEY_PATH="$HOME/.ssh/id_ed25519"
+  elif [[ -f "$HOME/.ssh/id_rsa" ]]; then
+    KEY_PATH="$HOME/.ssh/id_rsa"
   else
     KEY_PATH=""
-    warn "No key at ~/.ssh/id_rsa or ~/.ssh/id_ed25519 — skipping authorized_keys."
+    warn "No key at ~/.ssh/id_ed25519 or ~/.ssh/id_rsa — skipping authorized_keys."
   fi
 
   if [[ -n "$KEY_PATH" ]]; then

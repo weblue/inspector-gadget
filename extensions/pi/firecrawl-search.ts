@@ -56,7 +56,26 @@ function asErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function formatSearchResults(result: any, scrapeResults?: boolean): string {
+  const data: any[] = result?.data ?? result?.results ?? (Array.isArray(result) ? result : []);
+  if (data.length === 0) return "No results found.";
+
+  return data
+    .map((item: any) => {
+      const title = item.title ?? item.metadata?.title ?? "(no title)";
+      const url = item.url ?? item.metadata?.url ?? "";
+      const snippet = item.description ?? item.metadata?.description ?? item.snippet ?? "";
+      let line = `- ${title} — ${url}`;
+      if (snippet) line += `\n  ${snippet.trim()}`;
+      if (scrapeResults && item.markdown) line += `\n${item.markdown.trim()}`;
+      return line;
+    })
+    .join("\n\n");
+}
+
 export default function (pi: ExtensionAPI) {
+  if (!readEnvValue("FIRECRAWL_API_KEY")) return;
+
   pi.registerTool({
     name: "search",
     label: "Search Web",
@@ -90,7 +109,7 @@ export default function (pi: ExtensionAPI) {
         if (signal?.aborted) throw new Error("Search cancelled");
 
         return {
-          content: [{ type: "text", text: stringify(result) }],
+          content: [{ type: "text", text: formatSearchResults(result, params.scrapeResults) }],
           details: result,
         };
       } catch (error) {

@@ -1,4 +1,5 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { platform } from "node:os";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
 function textFromContent(content: unknown) {
@@ -26,9 +27,55 @@ function textFromContent(content: unknown) {
     .join("\n");
 }
 
+function findLinuxClipboardCmd(): string[] | null {
+  const candidates: [string, string[]][] = [
+    ["wl-copy", []],
+    ["xclip", ["-selection", "clipboard"]],
+    ["xsel", ["--clipboard", "--input"]],
+  ];
+  for (const [bin, args] of candidates) {
+    try {
+      execFileSync("command", ["-v", bin], { stdio: "ignore" });
+      return [bin, ...args];
+    } catch {
+      // not available, try next
+    }
+  }
+  // execFileSync("command", ...) may not work for shell builtins on all systems;
+  // fall back to a which-style check.
+  for (const [bin, args] of candidates) {
+    try {
+      execFileSync("which", [bin], { stdio: "ignore" });
+      return [bin, ...args];
+    } catch {
+      // not found
+    }
+  }
+  return null;
+}
+
 function copyToClipboard(text: string) {
   return new Promise<void>((resolve, reject) => {
-    const child = spawn("pbcopy");
+    let cmd: string;
+    let args: string[];
+
+    if (platform() === "darwin") {
+      cmd = "pbcopy";
+      args = [];
+    } else {
+      const found = findLinuxClipboardCmd();
+      if (!found) {
+        reject(
+          new Error(
+            "No clipboard tool found. Install wl-copy (Wayland), xclip, or xsel.",
+          ),
+        );
+        return;
+      }
+      [cmd, ...args] = found;
+    }
+
+    const child = spawn(cmd, args);
     let stderr = "";
 
     child.stderr.on("data", (chunk) => {
@@ -40,7 +87,7 @@ function copyToClipboard(text: string) {
       if (code === 0) {
         resolve();
       } else {
-        reject(new Error(stderr.trim() || `pbcopy exited with code ${code}`));
+        reject(new Error(stderr.trim() || `${cmd} exited with code ${code}`));
       }
     });
 

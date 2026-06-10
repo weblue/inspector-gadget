@@ -92,10 +92,16 @@ fi
 if tmux has-session -t "$SESSION" 2>/dev/null; then
   success "Session '${SESSION}' already running."
 else
-  tmux new-session -d -s "$SESSION" -n "pi" \; \
-    send-keys -t "${SESSION}:pi" "pi" Enter \; \
-    new-window -t "$SESSION" -n "shell"
-  success "Session '${SESSION}' started (windows: pi, shell)."
+  if command -v pi &>/dev/null; then
+    tmux new-session -d -s "$SESSION" -n "pi" \; \
+      send-keys -t "${SESSION}:pi" "pi" Enter \; \
+      new-window -t "$SESSION" -n "shell"
+    success "Session '${SESSION}' started (windows: pi, shell)."
+  else
+    warn "pi not found — starting session with shell window only."
+    tmux new-session -d -s "$SESSION" -n "shell"
+    success "Session '${SESSION}' started (window: shell)."
+  fi
 fi
 
 # ─── connection info ──────────────────────────────────────────────────────────

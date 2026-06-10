@@ -39,7 +39,7 @@ function splitOnOps(tokens: Token[], splitOps: string[]): Token[][] {
 }
 
 function hasFlag(args: string[], flag: string): boolean {
-	return args.includes(flag) || args.some((a) => a.startsWith(flag) && flag.length === 2 && a.startsWith("-"));
+	return args.includes(flag) || args.some((a) => a.startsWith(flag) && flag.length === 2);
 }
 
 function anyArgStartsWith(args: string[], prefix: string): boolean {
@@ -51,8 +51,23 @@ function analyzeSegment(seg: Token[]): Risk | null {
 	let severity: Severity = "medium";
 
 	const ops = seg.filter(isOpToken).map((o) => o.op);
-	const args = tokensToStrings(seg);
+	let args = tokensToStrings(seg);
 	if (args.length === 0) return null;
+
+	// Unwrap rtk prefix so `rtk git push --force` is analysed as `git push --force`.
+	// `rtk proxy <cmd> [args...]` — drop both `rtk` and `proxy`.
+	// `rtk run '<shell string>'` — delegate to analyzeBashCommand on the inner string.
+	if (args[0] === "rtk") {
+		if (args[1] === "run") {
+			// The third token is the quoted shell string passed to sh -c.
+			const inner = args.slice(2).join(" ");
+			if (!inner) return null;
+			return analyzeBashCommand(inner);
+		}
+		// Drop `rtk` (and optional `proxy`) then continue with the real command.
+		args = args[1] === "proxy" ? args.slice(2) : args.slice(1);
+		if (args.length === 0) return null;
+	}
 
 	const cmd = args[0];
 	const rest = args.slice(1);
@@ -84,12 +99,10 @@ function analyzeSegment(seg: Token[]): Risk | null {
 		reasons.push("find -delete (bulk deletion)");
 	}
 
-	// git operations (prompt on ANY git command)
+	// git operations — only flag mutating/destructive subcommands, not every git call.
 	if (cmd === "git") {
 		const sub = rest[0];
 		const subArgs = rest.slice(1);
-
-		reasons.push(sub ? `git ${sub} (git command)` : "git (git command)");
 
 		if (sub === "rm") {
 			severity = "high";
@@ -375,14 +388,52 @@ const HEADLESS_BLOCKED: Array<{ pattern: RegExp; reason: string }> = [
 	{ pattern: /\bgit\s+gc\b[^#\n]*--prune\b/, reason: "prune unreachable objects (git gc --prune)" },
 ];
 
+/**
+ * Returns the set of command strings to test against HEADLESS_BLOCKED patterns.
+ * For an `rtk`-prefixed command we also produce stripped variants so that
+ * patterns anchored on the real command name still match.
+ *
+ *   "rtk git push --force"        → also tests "git push --force"
+ *   "rtk proxy git push --force"  → also tests "git push --force"
+ *   "rtk run 'rm -rf /tmp/x'"     → also tests "rm -rf /tmp/x"  (the inner sh string)
+ */
+function headlessVariants(command: string): string[] {
+	const variants = [command];
+	const trimmed = command.trim();
+	const rtkMatch = trimmed.match(/^rtk\s+(.*)$/);
+	if (!rtkMatch) return variants;
+
+	const afterRtk = rtkMatch[1];
+
+	// rtk run '<shell string>'
+	const runMatch = afterRtk.match(/^run\s+(['"])(.*)\1\s*$/s) ?? afterRtk.match(/^run\s+(.*)/s);
+	if (runMatch) {
+		const inner = runMatch[2] ?? runMatch[1];
+		if (inner) variants.push(inner.trim());
+		return variants;
+	}
+
+	// rtk proxy <cmd ...>
+	const proxyMatch = afterRtk.match(/^proxy\s+(.*)$/s);
+	if (proxyMatch) {
+		variants.push(proxyMatch[1].trim());
+		return variants;
+	}
+
+	// rtk <cmd ...>
+	variants.push(afterRtk.trim());
+	return variants;
+}
+
 export default function (pi: ExtensionAPI) {
 	if (_isSubagent) {
 		// Subagent mode: hard-block catastrophic operations, no prompting.
 		pi.on("tool_call", async (event) => {
 			if (!isToolCallEventType("bash", event)) return;
 			const command = event.input.command;
+			const variants = headlessVariants(command);
 			for (const { pattern, reason } of HEADLESS_BLOCKED) {
-				if (pattern.test(command)) {
+				if (variants.some((v) => pattern.test(v))) {
 					return {
 						block: true,
 						reason:
