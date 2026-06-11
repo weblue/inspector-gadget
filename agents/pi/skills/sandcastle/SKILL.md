@@ -1,6 +1,6 @@
 ---
 name: sandcastle
-description: Run AFK implementation tasks in a Docker sandbox + git worktree via the sandcastle_run tool. Use for hand-off, parallel, or risky implementation work that must not touch the host checkout; not for quick edits or read-only tasks.
+description: Run delegated sub-agent implementation tasks in a Docker sandbox + git worktree via the sandcastle_run tool. Only for hand-off/parallel work collected later; never for synchronous in-session work, quick edits, or read-only tasks.
 ---
 
 # Sandcastle: sandboxed AFK runs
@@ -8,11 +8,11 @@ description: Run AFK implementation tasks in a Docker sandbox + git worktree via
 `sandcastle_run` launches a headless Pi agent (same auth and models as this session — auth.json is mounted read-only) inside a Docker container, working in an isolated git worktree. Changes come back as commits on a branch, never directly in the working tree.
 
 ## When
-- Implementation tasks you'd hand off whole: multi-file features, refactors, test-fixing loops.
-- Parallel work: multiple runs on different branches can't clobber each other or this checkout.
-- Anything risky enough that host isolation matters.
+Sub-agent calls only — work delegated whole and collected later:
+- Hand-off implementation: multi-file features, refactors, test-fix loops.
+- Parallel runs on separate branches.
 
-Not for: quick single-file edits (do them directly), read-only questions, tasks needing interactive input.
+Never for synchronous workflows: anything being waited on in-session, quick edits, read-only questions, tasks needing interaction — do those directly on the host.
 
 ## Prereqs (once per repo)
 - Docker running.
