@@ -16,7 +16,7 @@ Never for synchronous workflows: anything being waited on in-session, quick edit
 
 ## Prereqs (once per repo)
 - Docker running.
-- Scaffold + image build, inside the repo: `npx @ai-hero/sandcastle init && npx @ai-hero/sandcastle docker build-image` (images are per-repo: `sandcastle:<repo-dir>`).
+- Scaffold + image build, inside the repo: `npx @ai-hero/sandcastle init --agent pi && npx @ai-hero/sandcastle docker build-image` (images are per-repo: `sandcastle:<repo-dir>`; install.sh offers this for one repo).
 
 ## Call
 - `task`: self-contained prompt — exact file paths, acceptance criteria, and an explicit "commit your work" instruction.

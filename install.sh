@@ -635,13 +635,32 @@ if agent_selected pi; then
 
   configure_pi_settings
 
-  # The sandcastle extension runs AFK agents in Docker sandboxes. It needs a
-  # running Docker daemon and a one-time image build.
+  # The sandcastle extension runs delegated sub-agent calls in Docker sandboxes.
+  # Setup is per-repo (images are named sandcastle:<repo-dir>); offer to run it
+  # for one repo now. Skipped under --force (non-interactive update path).
   if command -v docker &>/dev/null; then
     success "Docker found — sandcastle sandboxed runs available."
-    info "Per-repo setup before first sandcastle_run: npx @ai-hero/sandcastle init && npx @ai-hero/sandcastle docker build-image"
+    if [[ "$FORCE" -eq 0 ]]; then
+      read -rp "$(echo -e "${BOLD}?${RESET}  Repo path to initialize sandcastle in now (blank to skip): ")" SC_REPO
+      if [[ -n "$SC_REPO" ]]; then
+        SC_REPO="${SC_REPO/#\~/$HOME}"
+        if [[ -e "$SC_REPO/.git" ]]; then
+          if (cd "$SC_REPO" \
+              && npx --prefix "$ext_dest" sandcastle init --agent pi \
+              && npx --prefix "$ext_dest" sandcastle docker build-image); then
+            success "sandcastle initialized in $SC_REPO (image: sandcastle:$(basename "$SC_REPO"))"
+          else
+            warn "sandcastle init failed — run manually in the repo:"
+            warn "  npx @ai-hero/sandcastle init --agent pi && npx @ai-hero/sandcastle docker build-image"
+          fi
+        else
+          warn "Not a git repo: $SC_REPO — skipping."
+        fi
+      fi
+    fi
+    info "Other repos, before first sandcastle_run: npx @ai-hero/sandcastle init --agent pi && npx @ai-hero/sandcastle docker build-image"
   else
-    warn "Docker not found — the sandcastle skill (sandboxed AFK runs) won't work until Docker is installed."
+    warn "Docker not found — the sandcastle skill (sandboxed sub-agent runs) won't work until Docker is installed."
   fi
 fi
 

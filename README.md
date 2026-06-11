@@ -47,10 +47,10 @@ Plus shared prompt rules (docs over code-reading, summaries over raw output, tar
 
 Claude subagents (coder, reviewer, tester, architect, security) ~10 lines each, cost routing in frontmatter; main session orchestrates. Shared skills: `stop-slop`, `grill-me`.
 
-Pi-only: the `sandcastle` skill gates `sandcastle_run` — headless Pi agent, same auth (`auth.json` mounted read-only), in a Docker container on an isolated git worktree; changes return as commits on a `sandcastle/*` branch. Sub-agent calls only; synchronous work runs directly on the host. Once per repo:
+Pi-only: the `sandcastle` skill gates `sandcastle_run` — headless Pi agent, same auth (`auth.json` mounted read-only), in a Docker container on an isolated git worktree; changes return as commits on a `sandcastle/*` branch. Sub-agent calls only; synchronous work runs directly on the host. Once per repo (`install.sh` offers to run this for a repo of your choice):
 
 ```bash
-npx @ai-hero/sandcastle init && npx @ai-hero/sandcastle docker build-image
+npx @ai-hero/sandcastle init --agent pi && npx @ai-hero/sandcastle docker build-image
 ```
 
 ## 5 — Remote access
