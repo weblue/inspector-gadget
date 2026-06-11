@@ -395,7 +395,51 @@ else
     # unrelated 'rtk' (Rust Type Kit) formula.
     brew install rtk-ai/tap/rtk
   else
-    curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
+    # ── Pinned RTK Linux install ───────────────────────────────────────────────
+    # Bump instructions: update RTK_VERSION and the two SHA256 values below.
+    # Fetch new hashes from the release's checksums.txt at:
+    #   https://github.com/rtk-ai/rtk/releases/download/v<NEW_VERSION>/checksums.txt
+    RTK_VERSION="0.42.3"
+    RTK_X86_SHA256="5df764a633709cb85d248258d085d24ec95faa8bca0e6835a93cd57cadc4eb9e"
+    RTK_ARM64_SHA256="2b7fa09d06f8dbf334c55482fad2e7ce4a1f8564bc9ed1f65d9f5992db8e5527"
+
+    RTK_ARCH="$(uname -m)"
+    case "$RTK_ARCH" in
+      x86_64)          RTK_ASSET="rtk-x86_64-unknown-linux-musl.tar.gz";   RTK_SHA256="$RTK_X86_SHA256" ;;
+      aarch64|arm64)   RTK_ASSET="rtk-aarch64-unknown-linux-gnu.tar.gz";   RTK_SHA256="$RTK_ARM64_SHA256" ;;
+      *) error "RTK: unsupported architecture '$RTK_ARCH'. Only x86_64 and aarch64/arm64 are supported." ;;
+    esac
+
+    RTK_URL="https://github.com/rtk-ai/rtk/releases/download/v${RTK_VERSION}/${RTK_ASSET}"
+    RTK_TMPDIR="$(mktemp -d)"
+    info "Downloading RTK ${RTK_VERSION} (${RTK_ARCH})..."
+    curl -fsSL "$RTK_URL" -o "${RTK_TMPDIR}/${RTK_ASSET}"
+
+    # Verify checksum — hard error on mismatch, never fall back to curl|sh.
+    if command -v sha256sum &>/dev/null; then
+      echo "${RTK_SHA256}  ${RTK_TMPDIR}/${RTK_ASSET}" | sha256sum -c --status \
+        || error "RTK checksum mismatch — aborting. Do NOT install from an unverified archive."
+    elif command -v shasum &>/dev/null; then
+      echo "${RTK_SHA256}  ${RTK_TMPDIR}/${RTK_ASSET}" | shasum -a 256 -c --status \
+        || error "RTK checksum mismatch — aborting. Do NOT install from an unverified archive."
+    else
+      error "No sha256sum or shasum found — cannot verify RTK archive. Install one and retry."
+    fi
+    success "RTK archive checksum verified."
+
+    tar -xzf "${RTK_TMPDIR}/${RTK_ASSET}" -C "$RTK_TMPDIR"
+    RTK_BIN="$(find "$RTK_TMPDIR" -type f -name rtk | head -1)"
+    [[ -n "$RTK_BIN" ]] || error "RTK binary not found in extracted archive."
+
+    if sudo install -m 755 "$RTK_BIN" /usr/local/bin/rtk 2>/dev/null; then
+      success "RTK installed to /usr/local/bin/rtk."
+    else
+      mkdir -p "$HOME/.local/bin"
+      install -m 755 "$RTK_BIN" "$HOME/.local/bin/rtk"
+      success "RTK installed to ~/.local/bin/rtk."
+      warn "~/.local/bin is not on PATH — add it: export PATH=\"\$HOME/.local/bin:\$PATH\""
+    fi
+    rm -rf "$RTK_TMPDIR"
   fi
   success "RTK installed."
 fi
@@ -424,13 +468,15 @@ fi
 #                                         ~/.codex/config.toml (no auto-discovery).
 #   pi:     ~/.pi/agent/skills/<skill>/ — loaded via the "skills" array in
 #                                         ~/.pi/agent/settings.json (wired below).
+#
+# Pi additionally gets harness-exclusive skills from agents/pi/skills/.
 
 copy_skills() {
-  local skills_src="$REPO_DIR/skills"
   local skills_dest="$1"
+  local skills_src="${2:-$REPO_DIR/skills}"
 
   if [[ ! -d "$skills_src" ]]; then
-    warn "skills/ directory not found, skipping."
+    warn "Skills source not found, skipping: $skills_src"
     return
   fi
 
@@ -488,6 +534,7 @@ install_agent_skills() {
     pi)
       mkdir -p "$HOME/.pi/agent/skills"
       copy_skills "$HOME/.pi/agent/skills"
+      copy_skills "$HOME/.pi/agent/skills" "$REPO_DIR/agents/pi/skills"
       # Pi settings.json (skills + extensions arrays) is wired in the Pi section below.
       ;;
   esac
@@ -509,7 +556,8 @@ done
 # relative to ~/.pi/agent).
 configure_pi_settings() {
   local settings="$HOME/.pi/agent/settings.json"
-  python3 - "$settings" <<'PY'
+  local pi_result
+  pi_result="$(python3 - "$settings" <<'PY'
 import json, os, sys
 path = sys.argv[1]
 data = {}
@@ -526,12 +574,34 @@ for key in ("skills", "extensions"):
     if key not in arr:
         arr.append(key)
     data[key] = arr
+# Wire subagent thinking-effort defaults only when not already configured.
+# These route pi-subagents builtin agents' reasoning effort (cost control);
+# full override docs are in the pi-subagents README.
+added_subagents = False
+if "subagents" not in data:
+    data["subagents"] = {
+        "agentOverrides": {
+            "scout":           {"thinking": "low"},
+            "context-builder": {"thinking": "low"},
+            "worker":          {"thinking": "medium"},
+            "planner":         {"thinking": "high"},
+            "reviewer":        {"thinking": "high"},
+            "oracle":          {"thinking": "high"},
+        }
+    }
+    added_subagents = True
 os.makedirs(os.path.dirname(path), exist_ok=True)
 with open(path, "w") as f:
     json.dump(data, f, indent=2)
     f.write("\n")
+print("added" if added_subagents else "skipped")
 PY
-  success "Pi settings.json wired (skills, extensions)."
+)"
+  if [[ "$pi_result" == "added" ]]; then
+    success "Pi settings.json wired (skills, extensions, subagents thinking defaults added)."
+  else
+    success "Pi settings.json wired (skills, extensions; existing subagents config preserved)."
+  fi
 }
 
 if agent_selected pi; then
@@ -545,6 +615,10 @@ if agent_selected pi; then
     warn "extensions/pi/ not found, skipping."
   else
     mkdir -p "$ext_dest"
+    # Retired extensions — drop stale copies on update:
+    #   bash-guard       → replaced by sandcastle sandboxing
+    #   firecrawl-search → removed; web access comes from the pi-web-access package
+    rm -f "$ext_dest/bash-guard.ts" "$ext_dest/firecrawl-search.ts"
     for ext_file in "$ext_src"/*.ts; do
       [[ -f "$ext_file" ]] || continue
       cp "$ext_file" "$ext_dest/"
@@ -552,6 +626,7 @@ if agent_selected pi; then
     done
     if [[ -f "$ext_src/package.json" ]]; then
       cp "$ext_src/package.json" "$ext_dest/package.json"
+      [[ -f "$ext_src/package-lock.json" ]] && cp "$ext_src/package-lock.json" "$ext_dest/package-lock.json"
       info "Installing Pi extension dependencies..."
       npm install --prefix "$ext_dest" --silent
       success "Extension dependencies installed."
@@ -560,20 +635,13 @@ if agent_selected pi; then
 
   configure_pi_settings
 
-  # The firecrawl-search extension exposes Pi's web `search`/`scrape` tools, which
-  # need a Firecrawl API key. The extension reads FIRECRAWL_API_KEY from the
-  # environment first, then from ~/.pi/agent/.env. Flag it here when neither is
-  # set so the tools don't silently error the first time the agent calls them.
-  PI_ENV="$HOME/.pi/agent/.env"
-  if [[ -n "${FIRECRAWL_API_KEY:-}" ]]; then
-    success "Firecrawl API key found in environment — Pi web search/scrape enabled."
-  elif [[ -f "$PI_ENV" ]] && grep -qE '^[[:space:]]*(export[[:space:]]+)?FIRECRAWL_API_KEY[[:space:]]*=' "$PI_ENV"; then
-    success "Firecrawl API key found in ~/.pi/agent/.env — Pi web search/scrape enabled."
+  # The sandcastle extension runs AFK agents in Docker sandboxes. It needs a
+  # running Docker daemon and a one-time image build.
+  if command -v docker &>/dev/null; then
+    success "Docker found — sandcastle sandboxed runs available."
+    info "Per-repo setup before first sandcastle_run: npx @ai-hero/sandcastle init && npx @ai-hero/sandcastle docker build-image"
   else
-    warn "Pi's web search/scrape tools (firecrawl-search) need a Firecrawl API key."
-    warn "  Set one before using them, e.g.:"
-    warn "    echo 'FIRECRAWL_API_KEY=fc-...' >> ~/.pi/agent/.env"
-    warn "  Get a key at https://www.firecrawl.dev"
+    warn "Docker not found — the sandcastle skill (sandboxed AFK runs) won't work until Docker is installed."
   fi
 fi
 
@@ -610,6 +678,9 @@ install_claude_profiles() {
   local dest="$HOME/.claude/agents"
   [[ -d "$src" ]] || { warn "agents/profiles/ not found, skipping."; return; }
   mkdir -p "$dest"
+  # Retired profiles — orchestrator removed (subagents can't spawn subagents;
+  # the main session orchestrates, guided by CLAUDE.md).
+  rm -f "$dest/orchestrator.md"
   local f name
   for f in "$src"/*.md; do
     [[ -f "$f" ]] || continue
@@ -666,8 +737,61 @@ elif [[ "$OS" == "mac" ]] && command -v brew &>/dev/null; then
   brew install --cask tailscale
   success "Tailscale installed. Open the Tailscale app and sign in to join your tailnet."
 elif [[ "$OS" == "linux" ]]; then
-  curl -fsSL https://tailscale.com/install.sh | sh
-  success "Tailscale installed. Run 'sudo tailscale up' to join your tailnet."
+  # ── Pinned Tailscale Linux install ────────────────────────────────────────
+  # Bump instructions: update TS_VERSION and the two SHA256 values below.
+  # Fetch a new hash by appending .sha256 to the tgz URL, e.g.:
+  #   curl -fsSL https://pkgs.tailscale.com/stable/tailscale_<VER>_amd64.tgz.sha256
+  TS_VERSION="1.98.4"
+  TS_AMD64_SHA256="e6c08a8ee7e63e69aaf1b62ecd12672b3883fbcd2a176bf6cfa42a15fdce0b6b"
+  TS_ARM64_SHA256="3cb068eb1368b6bb218d0ef0aa0a7a679a7156b7c979e2279cc2c2321b5f05c7"
+
+  if command -v systemctl &>/dev/null; then
+    TS_ARCH="$(uname -m)"
+    case "$TS_ARCH" in
+      x86_64)         TS_PKG_ARCH="amd64"; TS_SHA256="$TS_AMD64_SHA256" ;;
+      aarch64|arm64)  TS_PKG_ARCH="arm64"; TS_SHA256="$TS_ARM64_SHA256" ;;
+      *) error "Tailscale: unsupported architecture '$TS_ARCH'. Only x86_64 and aarch64/arm64 are supported." ;;
+    esac
+
+    TS_ASSET="tailscale_${TS_VERSION}_${TS_PKG_ARCH}.tgz"
+    TS_URL="https://pkgs.tailscale.com/stable/${TS_ASSET}"
+    TS_TMPDIR="$(mktemp -d)"
+    info "Downloading Tailscale ${TS_VERSION} (${TS_PKG_ARCH})..."
+    curl -fsSL "$TS_URL" -o "${TS_TMPDIR}/${TS_ASSET}"
+
+    # Verify checksum — hard error on mismatch.
+    if command -v sha256sum &>/dev/null; then
+      echo "${TS_SHA256}  ${TS_TMPDIR}/${TS_ASSET}" | sha256sum -c --status \
+        || error "Tailscale checksum mismatch — aborting. Do NOT install from an unverified archive."
+    elif command -v shasum &>/dev/null; then
+      echo "${TS_SHA256}  ${TS_TMPDIR}/${TS_ASSET}" | shasum -a 256 -c --status \
+        || error "Tailscale checksum mismatch — aborting. Do NOT install from an unverified archive."
+    else
+      error "No sha256sum or shasum found — cannot verify Tailscale archive. Install one and retry."
+    fi
+    success "Tailscale archive checksum verified."
+
+    tar -xzf "${TS_TMPDIR}/${TS_ASSET}" -C "$TS_TMPDIR"
+    TS_EXTRACTED="${TS_TMPDIR}/tailscale_${TS_VERSION}_${TS_PKG_ARCH}"
+
+    sudo install -m 755 "${TS_EXTRACTED}/tailscaled" /usr/sbin/tailscaled
+    sudo install -m 755 "${TS_EXTRACTED}/tailscale"  /usr/bin/tailscale
+    sudo install -m 644 "${TS_EXTRACTED}/systemd/tailscaled.service" /etc/systemd/system/tailscaled.service
+    # Don't clobber an existing defaults file — it may contain user customisations.
+    if [[ ! -f /etc/default/tailscaled ]]; then
+      sudo install -m 644 "${TS_EXTRACTED}/systemd/tailscaled.defaults" /etc/default/tailscaled
+    fi
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now tailscaled
+    rm -rf "$TS_TMPDIR"
+    success "Tailscale installed. Run 'sudo tailscale up' to join your tailnet."
+  else
+    # No systemd — fall back to the official script (unpinned).
+    warn "systemctl not found — falling back to the official Tailscale install script (unpinned, unverified)."
+    curl -fsSL https://tailscale.com/install.sh | sh
+    success "Tailscale installed. Run 'sudo tailscale up' to join your tailnet."
+  fi
 else
   warn "Could not install Tailscale — download from https://tailscale.com/download"
 fi

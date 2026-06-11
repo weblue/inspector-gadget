@@ -1,6 +1,9 @@
 import { execFileSync, spawn } from "node:child_process";
+import { openSync, writeSync, closeSync } from "node:fs";
 import { platform } from "node:os";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+
+const OSC52_LIMIT = 99_000;
 
 function textFromContent(content: unknown) {
   if (typeof content === "string") return content;
@@ -27,54 +30,93 @@ function textFromContent(content: unknown) {
     .join("\n");
 }
 
-function findLinuxClipboardCmd(): string[] | null {
-  const candidates: [string, string[]][] = [
-    ["wl-copy", []],
-    ["xclip", ["-selection", "clipboard"]],
-    ["xsel", ["--clipboard", "--input"]],
-  ];
-  for (const [bin, args] of candidates) {
+function findLinuxDisplayClipboardCmd(): string[] | null {
+  if (process.env.WAYLAND_DISPLAY) {
     try {
-      execFileSync("command", ["-v", bin], { stdio: "ignore" });
-      return [bin, ...args];
+      execFileSync("which", ["wl-copy"], { stdio: "ignore" });
+      return ["wl-copy"];
     } catch {
-      // not available, try next
+      // not found
     }
-  }
-  // execFileSync("command", ...) may not work for shell builtins on all systems;
-  // fall back to a which-style check.
-  for (const [bin, args] of candidates) {
     try {
-      execFileSync("which", [bin], { stdio: "ignore" });
-      return [bin, ...args];
+      execFileSync("command", ["-v", "wl-copy"], { stdio: "ignore" });
+      return ["wl-copy"];
     } catch {
       // not found
     }
   }
+
+  if (process.env.DISPLAY) {
+    const candidates: [string, string[]][] = [
+      ["xclip", ["-selection", "clipboard"]],
+      ["xsel", ["--clipboard", "--input"]],
+    ];
+    for (const [bin, args] of candidates) {
+      for (const checker of ["which", "command"] as const) {
+        try {
+          const checkerArgs = checker === "command" ? ["-v", bin] : [bin];
+          execFileSync(checker, checkerArgs, { stdio: "ignore" });
+          return [bin, ...args];
+        } catch {
+          // not found
+        }
+      }
+    }
+  }
+
   return null;
 }
 
-function copyToClipboard(text: string) {
-  return new Promise<void>((resolve, reject) => {
-    let cmd: string;
-    let args: string[];
+function copyViaOSC52(text: string): Promise<string | undefined> {
+  return new Promise((resolve, reject) => {
+    const b64 = Buffer.from(text).toString("base64");
+    const warning =
+      b64.length > OSC52_LIMIT
+        ? `Text is large (${b64.length} base64 chars); some terminals cap OSC52 at ~100 KB and may silently drop it.`
+        : undefined;
 
-    if (platform() === "darwin") {
-      cmd = "pbcopy";
-      args = [];
-    } else {
-      const found = findLinuxClipboardCmd();
-      if (!found) {
-        reject(
-          new Error(
-            "No clipboard tool found. Install wl-copy (Wayland), xclip, or xsel.",
-          ),
-        );
+    const inTmux = Boolean(process.env.TMUX);
+    const tmuxHint = inTmux
+      ? ' For tmux passthrough, ensure your tmux config includes: set -g allow-passthrough on'
+      : undefined;
+
+    const combinedWarning =
+      warning || tmuxHint
+        ? [warning, tmuxHint].filter(Boolean).join(" ")
+        : undefined;
+
+    // Build the raw OSC52 sequence
+    const seq = `\x1b]52;c;${b64}\x07`;
+
+    // Wrap in tmux DCS passthrough if inside tmux
+    const payload = inTmux
+      ? `\x1bPtmux;${seq.replace(/\x1b/g, "\x1b\x1b")}\x1b\\`
+      : seq;
+
+    let fd: number | null = null;
+    try {
+      fd = openSync("/dev/tty", "w");
+      writeSync(fd, payload);
+      closeSync(fd);
+    } catch {
+      if (fd !== null) {
+        try { closeSync(fd); } catch { /* ignore */ }
+      }
+      // /dev/tty not available — fall back to stdout
+      try {
+        process.stdout.write(payload);
+      } catch (err) {
+        reject(err);
         return;
       }
-      [cmd, ...args] = found;
     }
 
+    resolve(combinedWarning);
+  });
+}
+
+function copyViaNativeCmd(text: string, cmd: string, args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
     const child = spawn(cmd, args);
     let stderr = "";
 
@@ -93,6 +135,27 @@ function copyToClipboard(text: string) {
 
     child.stdin.end(text);
   });
+}
+
+/**
+ * Copy text to clipboard.
+ * Returns a warning string when the OSC52 path was used and there are caveats
+ * (large payload, tmux config hint), or undefined on clean success.
+ */
+function copyToClipboard(text: string): Promise<string | undefined> {
+  if (platform() === "darwin") {
+    return copyViaNativeCmd(text, "pbcopy", []).then(() => undefined);
+  }
+
+  // Linux: only use native tools when a display server is plausibly present
+  const found = findLinuxDisplayClipboardCmd();
+  if (found) {
+    const [cmd, ...args] = found;
+    return copyViaNativeCmd(text, cmd, args).then(() => undefined);
+  }
+
+  // Headless / SSH / tmux — use OSC52
+  return copyViaOSC52(text);
 }
 
 export default function (pi: ExtensionAPI) {
@@ -123,8 +186,17 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      await copyToClipboard(text);
-      ctx.ui.notify(`Copied ${messages.length} messages to clipboard`, "info");
+      const usedOSC52 =
+        platform() !== "darwin" && !findLinuxDisplayClipboardCmd();
+
+      const warning = await copyToClipboard(text);
+
+      const baseMsg = usedOSC52
+        ? `Copied ${messages.length} messages via OSC52 (terminal clipboard)`
+        : `Copied ${messages.length} messages to clipboard`;
+
+      const notifyMsg = warning ? `${baseMsg}. ${warning}` : baseMsg;
+      ctx.ui.notify(notifyMsg, "info");
     },
   });
 }

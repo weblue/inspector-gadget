@@ -1,18 +1,19 @@
 # TODO
 
-High-value items that need real effort, priority order. Low-effort fixes land directly in the repo. (Replaces `action-items.md` — its remaining items are folded in below.)
+High-value items that need real effort, priority order. Low-effort fixes land directly in the repo.
 
-1. **Decide Pi subagent VCS policy.** bash-guard hard-blocks `git commit/pull/push` in every Pi subagent (`PI_SUBAGENT_DEPTH >= 1`) — the main reason Pi multi-agent worked poorly: worker agents can't finish an implement→commit cycle and fail silently (no UI in headless mode). Either drop those three patterns from `HEADLESS_BLOCKED` (subagents commit; main session still guards) or keep VCS main-session-only and document Pi subagents as implement-only. Also on the server: two competing subagent packages are installed (`pi-subagents` v0.28 + `@tintinweb/pi-subagents`) — remove the tintinweb one from `~/.pi/agent` settings/npm, and add `subagents.agentOverrides` model routing to `~/.pi/agent/settings.json`. Value: working multi-agent on Pi.
-2. **Merge-seed settings.json.** Install overwrites (with backup / `--force`). A python merge of `permissions.deny` + `env` into existing settings would propagate updates without clobbering local config. Value: painless updates on already-installed machines.
-3. **Pin `curl | sh` installers.** rtk (linux) and Tailscale run unpinned remote scripts — the exact pattern bash-guard flags as high risk. Pin versioned release artifacts + checksums. Value: supply-chain safety on every new machine.
-4. **bash-guard test suite.** vitest cases for `analyzeBashCommand` (rtk-wrapped, git subcommands, headless variants). shell-quote is already a dep. Value: guard regressions are silent safety gaps — the rtk bypass shipped unnoticed.
-5. **OSC52 clipboard in copy-all.** Native clipboard tools don't cross SSH/tmux; OSC52 does. Value: `/copy-all` works from the server, where Pi actually runs.
-6. **Per-profile thinking budgets.** Lower `MAX_THINKING_TOKENS` for mechanical roles (coder/tester), keep large for planning/review. A blanket global cap would hurt planning, so this needs per-profile env plumbing. Value: cost.
-7. **Audit MCP/tool registrations per harness.** Every registered tool's description costs context each turn; disable unused ones. (firecrawl-search now self-disables without an API key.)
+1. **Merge-seed settings.json.** Install overwrites (with backup / `--force`). A python merge of `permissions.deny` + `env` into existing settings would propagate updates without clobbering local config. Value: painless updates on already-installed machines.
+2. **Audit MCP/tool registrations per harness.** Every registered tool's description costs context each turn; disable unused ones.
+
+## Resolved
+
+- **Pinned installers** (2026-06-10): rtk Linux installs pinned to v0.42.3 release tarballs with in-repo sha256 verification (mac stays on brew, which verifies via formula). Tailscale Linux pinned to v1.98.4 static tarballs + in-repo sha256 on systemd hosts; non-systemd falls back to the official script with a loud unpinned warning. Bump instructions are inline comments in install.sh.
+- **Sandcastle first-run** (2026-06-10): images are per-repo (`sandcastle:<repo-dir>`), so a central install-time prebuild doesn't apply. Resolved by documenting the per-repo `init && docker build-image` flow in the skill, install output, and the extension's error hint.
+- **pi-subagents model routing** (2026-06-10): install.sh now seeds `subagents.agentOverrides` thinking levels (scout/context-builder low, worker medium, planner/reviewer/oracle high) into `~/.pi/agent/settings.json` — only when no `subagents` key exists, so user tuning is never clobbered.
+- **OSC52 clipboard** (2026-06-10): copy-all falls back to OSC52 (with tmux passthrough wrapping) when no display server is present — clipboard now works from the headless server. Needs `set -g allow-passthrough on` in tmux ≥3.3.
+- **Per-profile thinking budgets** (2026-06-10): Claude subagent frontmatter supports `effort` — coder/tester now `medium`, reviewer/architect/security `high`. Pi side covered by the agentOverrides thinking levels above.
+- **Pi subagent VCS policy** (2026-06-10): bash-guard removed; AFK work routes through the sandcastle extension (Docker + worktree), parallel pi-subagents runs use `worktree: true`, duplicate `@tintinweb/pi-subagents` removed.
 
 ## Recurring hygiene
 
-- Run `rtk discover` / `rtk gain` periodically; wrap missed commands.
-- Revisit `.gitignore` when new tooling adds caches, logs, or generated output.
-- Keep prompts lean; prune stale instructions from `system-prompt.md` / `agents/`.
-- Scratch and generated files go under ignored `tmp/` / `.tmp/`.
+Run `./maintain.sh` (report) or `./maintain.sh --prune` (also deletes junk + stale backups). It covers: rtk savings + unwrapped-command hints, Finder junk, stale install backups, installed-prompt bloat (>600 words), large untracked files, stale `sandcastle/*` branches. Schedule it via cron or a Claude Code routine if manual runs lapse.

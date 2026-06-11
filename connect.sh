@@ -2,10 +2,9 @@
 # connect.sh — open agent-jacket server sessions as cmux workspaces (tabs)
 #
 # Run this on a client mac after client-install.sh.
-# Opens three cmux workspaces, each SSH'd into the server:
+# Opens two cmux workspaces, each SSH'd into the server:
 #   1. pi      — attaches to the Pi agent tmux window
 #   2. shell   — general-purpose shell on the server
-#   3. logs    — tail of server logs / monitoring
 #
 # cmux must be running. Tailscale must be connected.
 # SSH alias must be configured (~/.ssh/config Host agent-jacket-server).
@@ -90,10 +89,6 @@ open_workspace "pi" \
 open_workspace "shell" \
   "ssh ${SSH_ALIAS}"
 
-# 3. Logs — placeholder for tailing logs or running monitoring
-open_workspace "logs" \
-  "ssh ${SSH_ALIAS} -t 'tail -f ~/.pi/agent/logs/*.log 2>/dev/null || echo \"No log files found. Use this tab for monitoring.\"'"
-
 # ─── done ─────────────────────────────────────────────────────────────────────
 echo ""
 echo "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
@@ -103,7 +98,6 @@ echo ""
 echo "  Workspaces open in cmux:"
 echo "  ${CYAN}pi${RESET}     — Pi agent session (tmux: agent-jacket)"
 echo "  ${CYAN}shell${RESET}  — General server shell"
-echo "  ${CYAN}logs${RESET}   — Log monitoring"
 echo ""
 echo "  ${DIM}Add more workspaces: cmux new-workspace${RESET}"
 echo "  ${DIM}Send a command:      cmux send 'your-command' && cmux send-key enter${RESET}"

@@ -2,6 +2,7 @@
 name: coder
 description: Implements features and bug fixes from a task spec with acceptance criteria. Writes production code only — no tests, no reviews.
 model: sonnet
+effort: medium
 ---
 
 Implement exactly what the task specifies. Read the named files first; match surrounding conventions.

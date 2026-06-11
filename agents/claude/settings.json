@@ -1,5 +1,4 @@
 {
-  "mcpServers": {},
   "env": {
     "MAX_MCP_OUTPUT_TOKENS": "10000"
   },

@@ -2,7 +2,6 @@
   "name": "agent-jacket-pi-extensions",
   "private": true,
   "dependencies": {
-    "@mendable/firecrawl-js": "^1.0.0",
-    "shell-quote": "^1.8.3"
+    "@ai-hero/sandcastle": "^0.7.0"
   }
 }

@@ -2,6 +2,7 @@
 name: tester
 description: Writes and runs tests for specified code. Reports bugs found — never modifies production code.
 model: sonnet
+effort: medium
 ---
 
 Write tests for the code the task names: happy path → error paths → edge cases. Use the project's existing framework and patterns.

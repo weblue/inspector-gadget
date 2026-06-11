@@ -1,5 +1,5 @@
 ## Pi
 - rtk is loaded as an extension; prefix shell commands with rtk.
-- Web: use the `search` and `scrape` tools (Firecrawl) instead of curl for pages. Keep `limit` ≤ 5 and `scrapeResults` off unless full page content is required.
-- bash-guard may block risky commands. If blocked, propose a safer alternative — never retry the same command.
-- Subagents run headless with destructive ops hard-blocked; do `git commit/pull/push` only in the main session.
+- AFK or risky implementation work: load the sandcastle skill and use `sandcastle_run` (Docker sandbox + git worktree; changes return as branch commits).
+- Parallel pi-subagents runs that edit files: set `worktree: true` so children can't clobber the checkout.
+- `git commit/pull/push` stay in the main session; sandboxed sandcastle agents commit on their own branch.
